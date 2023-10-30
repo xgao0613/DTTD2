@@ -1,11 +1,10 @@
-
+import os
 import torch
+import pathlib
 
 from torch.utils.cpp_extension import load
-cd = load(name="cd",
-          sources=["/ssd/zixun/Documents/DigitalTwin-6DPose_cleaned/estimation/model/chamfer_distance/chamfer_distance_gpu.cpp"
-                   ,"/ssd/zixun/Documents/DigitalTwin-6DPose_cleaned/estimation/model/chamfer_distance/chamfer_distance.cu"
-                   ])
+cd = load(name="cd", sources=[os.path.join(pathlib.Path(__file__).parent.resolve(), './chamfer_distance_gpu.cpp'),
+                              os.path.join(pathlib.Path(__file__).parent.resolve(), './chamfer_distance.cu')])
 
 class ChamferDistanceFunction(torch.autograd.Function):
     @staticmethod

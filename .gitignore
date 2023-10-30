@@ -142,6 +142,8 @@ detection/yolov5/*
 # estimation
 result/
 checkpoints/
+dataset/dttd/DTTD_Dataset
+dataset/dttd_iphone/DTTD_iPhone_Dataset
 dataset/ycb/YCB_Video_Dataset
 
 # evaluation
@@ -154,4 +156,3 @@ eval/dttd_iphone/*.png
 eval/single/eval_results*
 eval/dttd_iphone/debug/*
 *send_data.sh
-
