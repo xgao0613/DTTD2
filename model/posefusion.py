@@ -29,8 +29,8 @@ class BaseFormer(nn.Module):
             feedforward_dim=512,
             dropout=0.1
         )
-        self.linear_projection = nn.Conv1d(feat_dim , embedding_dim, 1)
         # A Layernorm and a Linear layer are applied on the encoder embeddings
+        self.linear_projection = nn.Conv1d(feat_dim , embedding_dim, 1)
         self.norm = nn.LayerNorm(embedding_dim)
         self.require_adl = require_adl
 
@@ -40,7 +40,7 @@ class BaseFormer(nn.Module):
             embeddings = self.transformer(embeddings)
         else:
             attn_map_list = []
-            for i, encoder_layer in enumerate(self.transformer.transformer.layers): 
+            for _, encoder_layer in enumerate(self.transformer.transformer.layers):
                 attn_layer = encoder_layer.self_attn
                 query = key = value = embeddings.transpose(1, 0)
                 x, attn_map = simplified_attention_forward(
@@ -53,7 +53,7 @@ class BaseFormer(nn.Module):
 
             adl = attn_diverse_loss(attn_map_list)
 
-        embeddings = self.norm(embeddings) #B,seq_len,emb_dim 
+        embeddings = self.norm(embeddings) # (B, seq_len, emb_dim)
         return embeddings if not self.require_adl else (embeddings, adl)
 
     def get_attention_map(self, feat, layer_id=None):
@@ -78,17 +78,15 @@ class BaseFormer(nn.Module):
                         attn_layer.in_proj_weight, attn_layer.in_proj_bias)
                     return attn_map
 
-
-
 class PosePredictor(nn.Module):
     def __init__(self, feat_dim, num_points, num_obj):
         super(PosePredictor, self).__init__()
         self.num_points = num_points
         self.num_obj = num_obj
-        #pose predictor
-        self.conv_r = MLPs(feat_dim, num_obj*4) #quaternion
-        self.conv_t = MLPs(feat_dim, num_obj*3) #translation
-        self.conv_c = MLPs(feat_dim, num_obj*1) #confidence
+        # pose predictor
+        self.conv_r = MLPs(feat_dim, num_obj*4) # quaternion
+        self.conv_t = MLPs(feat_dim, num_obj*3) # translation
+        self.conv_c = MLPs(feat_dim, num_obj*1) # confidence
         
     def forward(self, ap_x, obj):
         bs, _, _ = ap_x.size()
@@ -104,18 +102,18 @@ class PosePredictor(nn.Module):
 
 ######## PoseFusion ########
 class FusionBlock(nn.Module):
-    def __init__(self, base_latent, embed_dim, n_layer1, n_layer2, require_adl=False):
+    def __init__(self, base_latent, embed_dim, n_layer_m, n_layer_p, require_adl=False):
         super(FusionBlock, self).__init__()
         self.embed_dim = embed_dim
         self.require_adl = require_adl
 
-        if n_layer1>0:
-            self.modality_fusion = BaseFormer(base_latent, base_latent, 4, n_layer1, require_adl=require_adl)
-            modality_dim = 4*base_latent
+        if n_layer_m > 0:
+            self.modality_fusion = BaseFormer(base_latent, base_latent, 4, n_layer_m, require_adl=require_adl)
+            modality_dim = 4 * base_latent
         else:
             self.modality_fusion = None
-            modality_dim = 2*base_latent
-        self.point_fusion = BaseFormer(modality_dim, embed_dim, 8, n_layer2, require_adl=require_adl) if n_layer2>0 else None
+            modality_dim = 2 * base_latent
+        self.point_fusion = BaseFormer(modality_dim, embed_dim, 8, n_layer_p, require_adl=require_adl) if n_layer_p > 0 else None
         assert (self.modality_fusion is not None or self.point_fusion is not None), \
                 "<Error Message> Either the number of modality or point-wise fusion layer \
                     should be larger than 0. \
@@ -156,19 +154,18 @@ class FusionBlock(nn.Module):
         return cross_feat, global_feat 
     
 class PoseFusion(nn.Module):
-    def __init__(self, base_latent, embed_dim, n_block, n_layer1, n_layer2, require_adl=False):
+    def __init__(self, base_latent, embed_dim, n_layer_m, n_layer_p, require_adl=False):
         super(PoseFusion, self).__init__()
-        self.n_block = n_block
-        self.fusion_mode = (n_layer1 * n_layer2 > 0)
+        self.fusion_mode = (n_layer_m * n_layer_p > 0)
         self.require_adl = require_adl
-        self.layers = self._make_layer(base_latent, embed_dim, n_layer1, n_layer2, require_adl)
+        self.layers = nn.Sequential(FusionBlock(base_latent, embed_dim, n_layer_m, n_layer_p, require_adl=require_adl))
         assert embed_dim == 2 * base_latent
         
     def forward(self, rgb_emb, pt_emb):
         if self.fusion_mode:
             result = None
             adl = 0
-            for i, layer in enumerate(self.layers):
+            for _, layer in enumerate(self.layers):
                 if not self.require_adl:
                     cross_feat, global_feat = layer(rgb_emb, pt_emb)
                 else:
@@ -176,29 +173,18 @@ class PoseFusion(nn.Module):
                     adl += adl_
                 result = torch.cat([result, cross_feat, global_feat], dim=1) if result is not None else torch.cat([cross_feat, global_feat], dim=1)
         else:
-            assert self.n_block == 1, \
-                "<Warning> You only have 1 fusion stage. Please merge all layers into 1 block. To fix it, you can set n_block=1"
             cross_feat, global_feat = self.layers[0](rgb_emb, pt_emb)
             result = cross_feat if global_feat is None else global_feat
         return result if not self.require_adl else (result, adl)
-    
-    def _make_layer(self, base_latent, embed_dim, n_layer1, n_layer2, require_adl):
-        layers = []
-        for i in range(0, self.n_block):
-            layers.append(FusionBlock(base_latent, embed_dim, n_layer1, n_layer2, require_adl=require_adl))
-        return nn.Sequential(*layers)
-
 
 class PoseNet(nn.Module):
-    def __init__(self, num_points, num_obj, \
-                 base_latent=256, embedding_dim=512, fusion_block_num=1, layer_num_m=2, layer_num_p=4, \
+    def __init__(self, num_points, num_obj, base_latent=256, embedding_dim=512, layer_num_m=2, layer_num_p=4, \
                  recon_choice='depth', filter_enhance=True, require_adl=False):
         super(PoseNet, self).__init__()
         self.num_points = num_points
         self.num_obj = num_obj
         self.base_latent = base_latent
         self.embedding_dim = embedding_dim
-        self.fusion_block_num = fusion_block_num
         self.layer_num_m = layer_num_m
         self.layer_num_p = layer_num_p
         self.fusion_mode = (layer_num_m*layer_num_p>0)
@@ -212,10 +198,9 @@ class PoseNet(nn.Module):
         self.filter_enhance = FilterLayer(num_points, base_latent, 0.0) if filter_enhance else None
         
         # modality and position interaction
-        self.fusion = PoseFusion(base_latent, embedding_dim, \
-                                 fusion_block_num, layer_num_m, layer_num_p, \
-                                 require_adl)
+        self.fusion = PoseFusion(base_latent, embedding_dim, layer_num_m, layer_num_p, require_adl)
         self.require_adl = require_adl
+        
         # prediction
         if self.fusion_mode:
             self.posepred = PosePredictor(base_latent * 4, num_points, num_obj)
@@ -223,9 +208,9 @@ class PoseNet(nn.Module):
             self.posepred = PosePredictor(base_latent * 2, num_points, num_obj)
 
     def _init_config_check(self):
-        print("ResNet &PtNet Output Dim:", self.base_latent, '\n',\
-              "Fusion Block Num:", self.fusion_block_num, '\n',\
-              "Modality Fusion Layer Num:", self.layer_num_m, '\n',\
+        print("ResNet &PtNet Output Dim:", self.base_latent, '\n', \
+              "Fusion Block Num:", self.fusion_block_num, '\n', \
+              "Modality Fusion Layer Num:", self.layer_num_m, '\n', \
               "Point2point Fusion Layer Num:", self.layer_num_p)
         
     def forward(self, img, x, choose, obj, recon_ref=None):
@@ -278,7 +263,6 @@ class PoseNet(nn.Module):
         pt_emb = self.ptnet.latent(pt_feat, pt_emb)
         if self.filter_enhance is not None:
             pt_emb = self.filter_enhance(pt_emb)
-        # feat = torch.cat([rgb_emb, pt_emb], dim=2)
         _, _, attn1, attn2 = self.fusion.layers[0](rgb_emb, pt_emb, require_attn=True)
     
         return attn1, attn2

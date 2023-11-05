@@ -22,7 +22,6 @@ class PSPModule(nn.Module):
         bottle = self.bottleneck(torch.cat(priors, 1))
         return self.relu(bottle)
 
-
 class PSPUpsample(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(PSPUpsample, self).__init__()
@@ -34,7 +33,6 @@ class PSPUpsample(nn.Module):
 
     def forward(self, x):
         return self.conv(x)
-
 
 class PSPNet(nn.Module):
     def __init__(self, n_classes=21, sizes=(1, 2, 3, 6), psp_size=2048, deep_features_size=1024, backend='resnet18',
@@ -49,7 +47,6 @@ class PSPNet(nn.Module):
         self.up_1 = PSPUpsample(1024, 512)
         self.up_2 = PSPUpsample(512, 256)
         self.up_3 = PSPUpsample(256, 256)
-
         self.drop_2 = nn.Dropout2d(p=0.15)
         self.final = nn.Sequential(
             nn.Conv2d(256, out_dim, kernel_size=1),
@@ -63,7 +60,7 @@ class PSPNet(nn.Module):
         )
 
     def forward(self, x):
-        f, class_f = self.feats(x) 
+        f, _ = self.feats(x) 
         p = self.psp(f)
         p = self.drop_1(p)
 

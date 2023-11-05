@@ -40,7 +40,6 @@ class BasicBlock(nn.Module):
 
         return out
 
-
 class Bottleneck(nn.Module):
     expansion = 4
     def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
@@ -58,10 +57,8 @@ class Bottleneck(nn.Module):
 
         out = self.conv1(x)
         out = self.relu(out)
-
         out = self.conv2(out)
         out = self.relu(out)
-
         out = self.conv3(out)
 
         if self.downsample is not None:
@@ -71,7 +68,6 @@ class Bottleneck(nn.Module):
         out = self.relu(out)
 
         return out
-
 
 class ResNet(nn.Module):
     def __init__(self, block, layers=(3, 4, 23, 3)):

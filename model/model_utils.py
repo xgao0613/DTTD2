@@ -1,10 +1,9 @@
-#@title Import packages
 import torch
 import torch.nn as nn
 import torch.nn.functional as F 
 import einops
 import numpy as np
-
+from typing import Optional, Tuple
 
 class Transformer(nn.Module):
     """Transformer Encoder 
@@ -36,8 +35,6 @@ class Transformer(nn.Module):
 
     def forward(self, x):
         return self.transformer(x)
-    
-
 
 class MLPs(nn.Module):
     def __init__(self, dim_in, dim_out):
@@ -51,9 +48,9 @@ class MLPs(nn.Module):
             nn.ReLU(),
             nn.Conv1d(128, dim_out, 1)
             )
+    
     def forward(self, x):
         return self.mlp(x)
-    
 
 class LayerNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-12):
@@ -125,9 +122,7 @@ class FilterLayer(nn.Module):
         save(input_tensor, 'before_filtered.png', 'Before')
         save(output_tensor, 'after_filtered.png', 'After')
 
-
 #  Transformer Customization
-future_mask = torch.triu(torch.zeros([1024, 1024]).fill_(float("-inf")), 1)
 def scaled_dot_product_attention(q, k, v, key_padding_mask=None, causal=False, return_attn = False):
     d_head = q.size(-1)
     s = einops.einsum(q, k, "n tl dh, n sl dh -> n tl sl") / d_head ** 0.5
@@ -137,7 +132,8 @@ def scaled_dot_product_attention(q, k, v, key_padding_mask=None, causal=False, r
             float("-inf"),
         )
     if causal:
-        attn_mask = future_mask[: s.size(1), : s.size(2)].to(s)
+        future_mask = torch.triu(torch.zeros([1024, 1024]).fill_(float("-inf")), 1)
+        attn_mask = future_mask[:s.size(1), :s.size(2)].to(s)
         s += attn_mask.unsqueeze(0)
     a = F.softmax(s, dim=-1, dtype=torch.float32).type_as(s)
     if return_attn:
@@ -147,7 +143,6 @@ def scaled_dot_product_attention(q, k, v, key_padding_mask=None, causal=False, r
 class MultiheadAttention(nn.Module):
     def __init__(self, d_model, n_heads):
         super().__init__()
-                
         self.n_heads = n_heads
         self.d_model = d_model
         self.d_head = d_model // n_heads
@@ -171,7 +166,6 @@ class MultiheadAttention(nn.Module):
         self.v_proj *= (1/self.d_model)
         self.o_proj *= (-1/self.d_model)
 
-    
     def forward(self, q, k, v, key_padding_mask=None, causal=False):
         q = self.q_proj(q)
         k = self.k_proj(k)
@@ -220,20 +214,15 @@ class HandmadeTransformerLayer(nn.Module):
         x = self.ffn_ln(x + residual)
         return x
 
-
-
-from typing import  Optional, Tuple
-Tensor = torch.Tensor
-
 def simplified_attention_forward(
-    query: Tensor,
-    key: Tensor,
-    value: Tensor,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
     num_heads: int,
-    in_proj_weight: Optional[Tensor],
-    in_proj_bias: Optional[Tensor],
+    in_proj_weight: Optional[torch.Tensor],
+    in_proj_bias: Optional[torch.Tensor],
     only_attn: bool=True
-    ) -> Tuple[Tensor, Optional[Tensor]]:
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
 
     # set up shape vars
     tgt_len, bsz, embed_dim = query.shape
@@ -255,7 +244,6 @@ def simplified_attention_forward(
     embeddings = einops.rearrange(embeddings, "(b n) tl dh -> b tl (n dh)", b = bsz)
     return embeddings, attn_map
 
-
 def attn_diverse_loss(attn, th=2):
     sim_sum = 0
     counter = 1e-6
@@ -272,4 +260,3 @@ def attn_diverse_loss(attn, th=2):
         counter += 1
     sim_sum = sim_sum / counter
     return sim_sum
-
