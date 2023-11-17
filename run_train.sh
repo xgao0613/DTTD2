@@ -1,7 +1,7 @@
 python train.py --device 0 \
     --dataset iphone --dataset_root /Data/DTTD_iPhone_Dataset/root --dataset_config ./dataset/dttd_iphone/dataset_config \
     --output_dir ./result/result \
-    --base_latent 256 --embed_dim 512 --fusion_block_num 1 --layer_num_m 8 --layer_num_p 4 \
+    --base_latent 256 --embed_dim 512 --layer_num_m 8 --layer_num_p 4 \
     --recon_w 0.3 --recon_choice depth \
     --loss adds --optim_batch 4 \
     --start_epoch 0 \
